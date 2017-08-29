@@ -56,6 +56,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"gopkg.in/gcfg.v1"
+	"gopkg.in/yaml.v2"
 )
 
 const (
@@ -1214,14 +1215,46 @@ func authFileContents(username, authSecret string) []byte {
 	return []byte(fmt.Sprintf("%s,%s,%s\n", authSecret, username, uuid.NewUUID()))
 }
 
+//Do i need to perform a marshall then unmarshall? 
+type WebhookConfig struct {
+	A string
+	B struct {
+
+	}
+}
+
+//AHHHHH:: it's so gross, but its in line with what was defined everywhere else. 
+//FUCKKKKKKKKKKKK. 
 //TODO: This needs to generate the file for the configs. YAML FILE. .
 //https://kubernetes.io/docs/admin/authentication/#authentication-strategies
-function webhookAuthFileContents(webhookUrl string, ) []byte {
+function webhookAuthFileContents(webhookUrl string) []byte {
+	var config = `
+	clusters: 
+	  - name: remote-authentication-service,
+		cluster: 
+			certificate-authority: /etc/federation/apiserver/ca.pem
+			server: %s
+	users:
+	  - name: api-server
+		user: 
+		  client-certificate: /etc/federation/cert.pem
+		  client-key: /etc/federation/key.pem
+	current-context: webhook
+	contexts:
+	- context:
+		cluster: remote-authentication-service
+		user: api-server
+	  name: webhook
+	`
+
+	webhookConfig := fmt.Sprintf(config, webhookUrl)
+	return []byte(WebhookConfig)
 }
 
 //TODO: try to generate the config for the auth files to be mapped as well. 
 // Need to generate ca.pem, cert.pem, client.key. 
-function certificateFileContents(certificate) []byte {
+function certificateFileContents(certificate string) []byte {
+	return []byte(certificate)
 	//TODO: I don't know whether we load the file as a config file or a string. 
 }
 
