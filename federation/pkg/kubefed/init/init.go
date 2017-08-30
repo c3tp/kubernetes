@@ -657,7 +657,7 @@ func createAPIServerCredentialsSecret(clientset client.Interface, namespace, cre
 	}
 
 	if credentials.webhookURL != "" {
-		data["webhookAuth.yaml"] = webhookAuthFileContents(credentials.webhookURL)
+		data["webhook.yaml"] = webhookAuthFileContents(credentials.webhookURL)
 		data["ca.pem"] = certificateFileContents(credentials.webhookCA)
 		data["cert.pem"] = certificateFileContents(credentials.webhookCert)
 		data["key.pem"] = certificateFileContents(credentials.webhookKey)
@@ -1222,13 +1222,6 @@ func authFileContents(username, authSecret string) []byte {
 	return []byte(fmt.Sprintf("%s,%s,%s\n", authSecret, username, uuid.NewUUID()))
 }
 
-//Do i need to perform a marshall then unmarshall?
-type WebhookConfig struct {
-	A string
-	B struct {
-	}
-}
-
 //AHHHHH:: it's so gross, but its in line with what was defined everywhere else.
 //FUCKKKKKKKKKKKK.
 //TODO: This needs to generate the file for the configs. YAML FILE. .
@@ -1243,8 +1236,8 @@ func webhookAuthFileContents(webhookUrl string) []byte {
 	users:
 	  - name: api-server
 		user: 
-		  client-certificate: /etc/federation/cert.pem
-		  client-key: /etc/federation/key.pem
+		  client-certificate: /etc/federation/apiserver/cert.pem
+		  client-key: /etc/federation/apiserver/key.pem
 	current-context: webhook
 	contexts:
 	- context:
