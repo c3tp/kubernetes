@@ -33,8 +33,7 @@ const (
 )
 
 func GetDefaultServerImage() string {
-	//HACK to get this to work without too much building.
-	return fmt.Sprintf("%s:%s", hyperkubeImageName, "v1.7.4")
+	return fmt.Sprintf("%s:%s", hyperkubeImageName, "version.Get()")
 }
 
 func Run() error {
