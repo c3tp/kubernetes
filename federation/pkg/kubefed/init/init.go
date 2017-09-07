@@ -756,6 +756,7 @@ func createAPIServer(clientset client.Interface, namespace, name, federationName
 		argsMap["--token-auth-file"] = "/etc/federation/apiserver/token.csv"
 	}
 	if hasWebhookAuthFile {
+		argsMap["--authentication-token-webhook-cache-ttl"] = "30m0s"
 		argsMap["--authentication-token-webhook-config-file"] = "/etc/federation/apiserver/webhook.yaml"
 	}
 	args := argMapsToArgStrings(argsMap, argOverrides)
