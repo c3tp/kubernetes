@@ -1222,39 +1222,31 @@ func authFileContents(username, authSecret string) []byte {
 	return []byte(fmt.Sprintf("%s,%s,%s\n", authSecret, username, uuid.NewUUID()))
 }
 
-//AHHHHH:: it's so gross, but its in line with what was defined everywhere else.
-//FUCKKKKKKKKKKKK.
-//TODO: This needs to generate the file for the configs. YAML FILE. .
-//https://kubernetes.io/docs/admin/authentication/#authentication-strategies
-func webhookAuthFileContents(webhookUrl string) []byte {
-	var config = `
-	clusters: 
-	  - name: remote-authentication-service,
-		cluster: 
-			certificate-authority: /etc/federation/apiserver/ca.pem
-			server: %s
-	users:
-	  - name: api-server
-		user: 
-		  client-certificate: /etc/federation/apiserver/cert.pem
-		  client-key: /etc/federation/apiserver/key.pem
-	current-context: webhook
-	contexts:
-	- context:
-		cluster: remote-authentication-service
-		user: api-server
-	  name: webhook
-	`
+func webhookAuthFileContents(webhookURL string) []byte {
+	var config = `clusters:
+  - name: remote-authentication-service
+    cluster:
+      certificate-authority: /etc/federation/apiserver/ca.pem
+      server: %s
+users:
+  - name: api-server
+    user:
+      client-certificate: /etc/federation/apiserver/cert.pem
+      client-key: /etc/federation/apiserver/key.pem
+current-context: webhook
+contexts:
+- context:
+    cluster: remote-authentication-service
+    user: api-server
+  name: webhook
+`
 
-	webhookConfig := fmt.Sprintf(config, webhookUrl)
+	webhookConfig := fmt.Sprintf(config, webhookURL)
 	return []byte(webhookConfig)
 }
 
-//TODO: try to generate the config for the auth files to be mapped as well.
-// Need to generate ca.pem, cert.pem, client.key.
 func certificateFileContents(certificate string) []byte {
 	return []byte(certificate)
-	//TODO: I don't know whether we load the file as a config file or a string.
 }
 
 func addCoreDNSServerAnnotation(deployment *extensions.Deployment, dnsZoneName, dnsProviderConfig string) (*extensions.Deployment, error) {
