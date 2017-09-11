@@ -159,6 +159,7 @@ type initFederationOptions struct {
 	apiServerWebhookCA               string
 	apiServerWebhookKey              string
 	apiServerWebhookCert             string
+	apiserverEnableWebhookAuth       string
 }
 
 func (o *initFederationOptions) Bind(flags *pflag.FlagSet, defaultServerImage, defaultEtcdImage string) {
@@ -183,6 +184,7 @@ func (o *initFederationOptions) Bind(flags *pflag.FlagSet, defaultServerImage, d
 	flags.StringVar(&o.apiServerWebhookCert, "apiserver-webhook-cert", "", "Cert for accessing the webhook auth URL")
 	flags.StringVar(&o.apiServerWebhookKey, "apiserver-webhook-key", "", "Key for accessing the webhook auth URL")
 	flags.StringVar(&o.apiServerWebhookURL, "apiserver-webhook-url", "", "Webhook authentication URL")
+	flags.StringVar(&o.apiserverEnableWebhookAuth, "apiserver-webhook-auth", "", "Apiserver webhook authentication")
 }
 
 // NewCmdInit defines the `init` command that bootstraps a federation
@@ -731,7 +733,7 @@ func createPVC(clientset client.Interface, namespace, svcName, federationName, e
 	return clientset.Core().PersistentVolumeClaims(namespace).Create(pvc)
 }
 
-func createAPIServer(clientset client.Interface, namespace, name, federationName, serverImage, etcdImage, advertiseAddress, credentialsName string, hasHTTPBasicAuthFile, hasTokenAuthFile bool, hasWebhookAuthFile bool, argOverrides map[string]string, pvc *api.PersistentVolumeClaim, dryRun bool) (*extensions.Deployment, error) {
+func createAPIServer(clientset client.Interface, namespace, name, federationName, serverImage, etcdImage, advertiseAddress, credentialsName string, hasHTTPBasicAuthFile, hasTokenAuthFile bool, hasWebhookAuthFile bool, activatewebhookauth bool, argOverrides map[string]string, pvc *api.PersistentVolumeClaim, dryRun bool) (*extensions.Deployment, error) {
 	command := []string{
 		"/hyperkube",
 		"federation-apiserver",
