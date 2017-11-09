@@ -154,6 +154,12 @@ type initFederationOptions struct {
 	apiServerNodePortPortPtr         *int32
 	apiServerEnableHTTPBasicAuth     bool
 	apiServerEnableTokenAuth         bool
+	apiServerEnableWebhookAuth       bool
+	apiServerWebhookURL              string
+	apiServerWebhookCA               string
+	apiServerWebhookKey              string
+	apiServerWebhookCert             string
+	apiserverAuthzWebhookUrl         string
 }
 
 func (o *initFederationOptions) Bind(flags *pflag.FlagSet, defaultServerImage, defaultEtcdImage string) {
@@ -172,7 +178,13 @@ func (o *initFederationOptions) Bind(flags *pflag.FlagSet, defaultServerImage, d
 	flags.StringVar(&o.apiServerAdvertiseAddress, apiserverAdvertiseAddressFlag, "", "Preferred address to advertise api server nodeport service. Valid only if '"+apiserverServiceTypeFlag+"=NodePort'.")
 	flags.Int32Var(&o.apiServerNodePortPort, apiserverPortFlag, 0, "Preferred port to use for api server nodeport service (0 for random port assignment). Valid only if '"+apiserverServiceTypeFlag+"=NodePort'.")
 	flags.BoolVar(&o.apiServerEnableHTTPBasicAuth, "apiserver-enable-basic-auth", false, "Enables HTTP Basic authentication for the federation-apiserver. Defaults to false.")
+	flags.BoolVar(&o.apiServerEnableWebhookAuth, "apiserver-enable-webhook-auth", false, "Enables Webhook authentication for the federation-apiserver. Defaults to false. ")
 	flags.BoolVar(&o.apiServerEnableTokenAuth, "apiserver-enable-token-auth", false, "Enables token authentication for the federation-apiserver. Defaults to false.")
+	flags.StringVar(&o.apiServerWebhookCA, "apiserver-webhook-ca", "", "Certificate authority key for accessing the webhook auth URL")
+	flags.StringVar(&o.apiServerWebhookCert, "apiserver-webhook-cert", "", "Cert for accessing the webhook auth URL")
+	flags.StringVar(&o.apiServerWebhookKey, "apiserver-webhook-key", "", "Key for accessing the webhook auth URL")
+	flags.StringVar(&o.apiServerWebhookURL, "apiserver-webhook-url", "", "Webhook authentication URL")
+	flags.StringVar(&o.apiserverAuthzWebhookUrl, "apiserver-authz-webhook-url", "", "Apiserver webhook authorization")
 }
 
 // NewCmdInit defines the `init` command that bootstraps a federation
@@ -209,6 +221,11 @@ type credentials struct {
 	username        string
 	password        string
 	token           string
+	webhookURL      string
+	webhookCert     string
+	webhookCA       string
+	webhookKey      string
+	authzWebhookURL string
 	certEntKeyPairs *entityKeyPairs
 }
 
@@ -321,7 +338,7 @@ func (i *initFederation) Run(cmdOut io.Writer, config util.AdminConfig) error {
 
 	fmt.Fprint(cmdOut, "Creating federation control plane objects (credentials, persistent volume claim)...")
 	glog.V(4).Info("Generating TLS certificates and credentials for communicating with the federation API server")
-	credentials, err := generateCredentials(i.commonOptions.FederationSystemNamespace, i.commonOptions.Name, svc.Name, HostClusterLocalDNSZoneName, serverCredName, ips, hostnames, i.options.apiServerEnableHTTPBasicAuth, i.options.apiServerEnableTokenAuth, i.options.dryRun)
+	credentials, err := generateCredentials(i.commonOptions.FederationSystemNamespace, i.commonOptions.Name, svc.Name, HostClusterLocalDNSZoneName, serverCredName, ips, hostnames, i.options.apiServerEnableHTTPBasicAuth, i.options.apiServerEnableTokenAuth, i.options.apiServerEnableWebhookAuth, i.options.apiServerWebhookURL, i.options.apiServerWebhookCA, i.options.apiServerWebhookCert, i.options.apiServerWebhookKey, i.options.apiserverAuthzWebhookUrl, i.options.dryRun)
 	if err != nil {
 		return err
 	}
@@ -361,7 +378,7 @@ func (i *initFederation) Run(cmdOut io.Writer, config util.AdminConfig) error {
 
 	fmt.Fprint(cmdOut, "Creating federation component deployments...")
 	glog.V(4).Info("Creating federation control plane components")
-	_, err = createAPIServer(hostClientset, i.commonOptions.FederationSystemNamespace, serverName, i.commonOptions.Name, i.options.serverImage, i.options.etcdImage, advertiseAddress, serverCredName, i.options.apiServerEnableHTTPBasicAuth, i.options.apiServerEnableTokenAuth, i.options.apiServerOverrides, pvc, i.options.dryRun)
+	_, err = createAPIServer(hostClientset, i.commonOptions.FederationSystemNamespace, serverName, i.commonOptions.Name, i.options.serverImage, i.options.etcdImage, advertiseAddress, serverCredName, i.options.apiServerEnableHTTPBasicAuth, i.options.apiServerEnableTokenAuth, i.options.apiServerEnableWebhookAuth, i.options.apiserverAuthzWebhookUrl != "", i.options.apiServerOverrides, pvc, i.options.dryRun)
 	if err != nil {
 		return err
 	}
@@ -575,7 +592,9 @@ func waitForLoadBalancerAddress(cmdOut io.Writer, clientset client.Interface, sv
 	return ips, hostnames, nil
 }
 
-func generateCredentials(svcNamespace, name, svcName, localDNSZoneName, serverCredName string, ips, hostnames []string, enableHTTPBasicAuth, enableTokenAuth, dryRun bool) (*credentials, error) {
+//OMFG:: LOL, so the basic auth only functions with the admin user and some basic random shit.
+//Need to figure out how to load the configs as files to be consumed by apiserver pod.
+func generateCredentials(svcNamespace, name, svcName, localDNSZoneName, serverCredName string, ips, hostnames []string, enableHTTPBasicAuth bool, enableTokenAuth bool, enableWebhookAuth bool, webhookURL string, webhookCA string, webhookCert string, webhookKey string, authzWebhookURL string, dryRun bool) (*credentials, error) {
 	credentials := credentials{
 		username: AdminCN,
 	}
@@ -586,6 +605,17 @@ func generateCredentials(svcNamespace, name, svcName, localDNSZoneName, serverCr
 		credentials.token = string(uuid.NewUUID())
 	}
 
+	if enableWebhookAuth {
+		credentials.webhookURL = webhookURL
+		credentials.webhookCA = webhookCA
+		credentials.webhookCert = webhookCert
+		credentials.webhookKey = webhookKey
+		//Pretty sure this is needed. You wouldn't want the key here but rather generated by the user.
+	}
+
+	if authzWebhookURL != "" {
+		credentials.authzWebhookURL = authzWebhookURL
+	}
 	entKeyPairs, err := genCerts(svcNamespace, name, svcName, localDNSZoneName, ips, hostnames)
 	if err != nil {
 		return nil, err
@@ -631,6 +661,17 @@ func createAPIServerCredentialsSecret(clientset client.Interface, namespace, cre
 	}
 	if credentials.token != "" {
 		data["token.csv"] = authFileContents(credentials.username, credentials.token)
+	}
+
+	if credentials.webhookURL != "" {
+		data["webhook.yaml"] = webhookAuthFileContents(credentials.webhookURL)
+		data["ca.pem"] = certificateFileContents(credentials.webhookCA)
+		data["cert.pem"] = certificateFileContents(credentials.webhookCert)
+		data["key.pem"] = certificateFileContents(credentials.webhookKey)
+	}
+
+	if credentials.authzWebhookURL != "" {
+		data["authz-webhook.yaml"] = webhookAuthFileContents(credentials.authzWebhookURL)
 	}
 
 	secret := &api.Secret{
@@ -702,7 +743,7 @@ func createPVC(clientset client.Interface, namespace, svcName, federationName, e
 	return clientset.Core().PersistentVolumeClaims(namespace).Create(pvc)
 }
 
-func createAPIServer(clientset client.Interface, namespace, name, federationName, serverImage, etcdImage, advertiseAddress, credentialsName string, hasHTTPBasicAuthFile, hasTokenAuthFile bool, argOverrides map[string]string, pvc *api.PersistentVolumeClaim, dryRun bool) (*extensions.Deployment, error) {
+func createAPIServer(clientset client.Interface, namespace, name, federationName, serverImage, etcdImage, advertiseAddress, credentialsName string, hasHTTPBasicAuthFile, hasTokenAuthFile bool, hasWebhookAuthFile bool, hasWebhookAuthzURL bool, argOverrides map[string]string, pvc *api.PersistentVolumeClaim, dryRun bool) (*extensions.Deployment, error) {
 	command := []string{
 		"/hyperkube",
 		"federation-apiserver",
@@ -726,7 +767,14 @@ func createAPIServer(clientset client.Interface, namespace, name, federationName
 	if hasTokenAuthFile {
 		argsMap["--token-auth-file"] = "/etc/federation/apiserver/token.csv"
 	}
-
+	if hasWebhookAuthFile {
+		argsMap["--authentication-token-webhook-cache-ttl"] = "30m0s"
+		argsMap["--authentication-token-webhook-config-file"] = "/etc/federation/apiserver/webhook.yaml"
+	}
+	if hasWebhookAuthzURL {
+		argsMap["--authorization-mode"] = "Webhook"
+		argsMap["--authorization-webhook-config-file"] = "/etc/federation/apiserver/authz-webhook.yaml"
+	}
 	args := argMapsToArgStrings(argsMap, argOverrides)
 	command = append(command, args...)
 
@@ -1189,6 +1237,33 @@ func addDNSProviderConfig(dep *extensions.Deployment, secretName string) *extens
 // authentication file in the format required by the federation-apiserver.
 func authFileContents(username, authSecret string) []byte {
 	return []byte(fmt.Sprintf("%s,%s,%s\n", authSecret, username, uuid.NewUUID()))
+}
+
+func webhookAuthFileContents(webhookURL string) []byte {
+	var config = `clusters:
+  - name: remote-authentication-service
+    cluster:
+      certificate-authority: /etc/federation/apiserver/ca.pem
+      server: %s
+users:
+  - name: api-server
+    user:
+      client-certificate: /etc/federation/apiserver/cert.pem
+      client-key: /etc/federation/apiserver/key.pem
+current-context: webhook
+contexts:
+- context:
+    cluster: remote-authentication-service
+    user: api-server
+  name: webhook
+`
+
+	webhookConfig := fmt.Sprintf(config, webhookURL)
+	return []byte(webhookConfig)
+}
+
+func certificateFileContents(certificate string) []byte {
+	return []byte(certificate)
 }
 
 func addCoreDNSServerAnnotation(deployment *extensions.Deployment, dnsZoneName, dnsProviderConfig string) (*extensions.Deployment, error) {
